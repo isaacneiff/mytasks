@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -196,7 +197,7 @@ const Sidebar = React.forwardRef<
       collapsible = "offcanvas",
       className,
       children,
-      // defaultOpen is now handled by SidebarProvider and accessed via context.open
+      defaultOpen, // Destructure defaultOpen here
       ...props
     },
     ref
@@ -792,3 +793,4 @@ export {
   SidebarTrigger,
   useSidebar,
 }
+
