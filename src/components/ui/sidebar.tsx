@@ -180,14 +180,17 @@ const SidebarProvider = React.forwardRef<
 )
 SidebarProvider.displayName = "SidebarProvider"
 
-const Sidebar = React.forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<"div"> & {
-    side?: "left" | "right"
-    variant?: "sidebar" | "floating" | "inset"
-    collapsible?: "offcanvas" | "icon" | "none",
-  }
->(
+// Define SidebarProps to include defaultOpen and onOpenChange for destructuring
+type SidebarProps = React.ComponentProps<"div"> & {
+  side?: "left" | "right";
+  variant?: "sidebar" | "floating" | "inset";
+  collapsible?: "offcanvas" | "icon" | "none";
+  defaultOpen?: boolean; // Prop for SidebarProvider, but passed through Sidebar
+  onOpenChange?: (open: boolean) => void; // Prop for SidebarProvider, but passed through Sidebar
+};
+
+
+const Sidebar = React.forwardRef<HTMLDivElement, SidebarProps>(
   (
     {
       side = "left",
@@ -195,7 +198,10 @@ const Sidebar = React.forwardRef<
       collapsible = "offcanvas",
       className,
       children,
-      ...props
+      // Destructure defaultOpen and onOpenChange so they are not in `...divProps`
+      defaultOpen: _defaultOpen,
+      onOpenChange: _onOpenChange,
+      ...divProps // Remaining props are actual div props
     },
     ref
   ) => {
@@ -210,7 +216,7 @@ const Sidebar = React.forwardRef<
             className
           )}
           ref={ref}
-          {...props}
+          {...divProps} // Spread only valid div props
         >
           {children}
         </div>
@@ -230,7 +236,7 @@ const Sidebar = React.forwardRef<
               } as React.CSSProperties
             }
             side={side}
-            {...props}
+            {...divProps} // Spread only valid div/SheetContent props
           >
             <div className="flex h-full w-full flex-col">{children}</div>
           </SheetContent>
@@ -248,6 +254,7 @@ const Sidebar = React.forwardRef<
         data-collapsible={desktopState === "collapsed" ? collapsible : ""}
         data-variant={variant}
         data-side={side}
+        {...divProps} // Spread only valid div props
       >
         <div
           className={cn(
@@ -271,7 +278,7 @@ const Sidebar = React.forwardRef<
             variant !== "floating" && variant !== "inset" && (collapsible !== "icon" || desktopState === "expanded") && (side === "left" ? "border-r border-sidebar-border" : "border-l border-sidebar-border"),
             className
           )}
-          {...props}
+          // No need to spread props here, outer div handles it
         >
           <div
             data-sidebar="sidebar"
@@ -791,4 +798,5 @@ export {
   SidebarTrigger,
   useSidebar,
 }
+
 
