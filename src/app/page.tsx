@@ -59,8 +59,14 @@ import {
   ClipboardList,
   Bike,
   CheckSquare,
+  Sunrise,
+  CalendarRange,
+  CalendarPlusIcon, // Changed from CalendarPlus
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { isBefore, startOfDay, startOfWeek, startOfMonth } from 'date-fns';
+
+type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
 
 interface Task {
   id: string;
@@ -69,9 +75,18 @@ interface Task {
   dueDate?: Date;
   category: string;
   completed: boolean;
+  recurrence: TaskRecurrence;
+  lastCompletedDate?: Date;
 }
 
 const initialCategories = ['Work', 'Personal', 'Study', 'Errands', 'Fitness', 'Other'];
+
+const recurrenceOptions: { value: TaskRecurrence; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+];
 
 const categoryIcons: Record<string, React.ElementType> = {
   Work: Briefcase,
@@ -82,9 +97,15 @@ const categoryIcons: Record<string, React.ElementType> = {
   Other: LayoutDashboard,
 };
 
+const recurrenceIcons: Record<TaskRecurrence, React.ElementType | null> = {
+  daily: Sunrise,
+  weekly: CalendarRange,
+  monthly: CalendarPlusIcon,
+  none: null,
+};
+
 const TaskWiseLogo = () => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-accent">
-    {/* Simple checkmark in a circle like icon */}
     <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 00-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
   </svg>
 );
@@ -96,6 +117,8 @@ const Home: NextPage = () => {
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined);
   const [newTaskCategory, setNewTaskCategory] = useState<string>(initialCategories[0]);
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState<TaskRecurrence>('none');
+  
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | undefined>(new Date());
   const [activeView, setActiveView] = useState<'tasks' | 'calendar'>('tasks');
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
@@ -106,19 +129,50 @@ const Home: NextPage = () => {
   useEffect(() => {
     setMounted(true);
     const storedTasks = localStorage.getItem('taskwise-tasks');
+    let loadedTasks: Task[] = [];
     if (storedTasks) {
       try {
-        const parsedTasks = JSON.parse(storedTasks).map((task: Task) => ({
-          ...task,
+        loadedTasks = JSON.parse(storedTasks).map((task: any) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
           dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+          category: task.category || initialCategories[0],
+          completed: task.completed || false,
+          recurrence: task.recurrence || 'none',
+          lastCompletedDate: task.lastCompletedDate ? new Date(task.lastCompletedDate) : undefined,
         }));
-        setTasks(parsedTasks);
       } catch (error) {
         console.error("Failed to parse tasks from local storage", error);
-        setTasks([]);
+        loadedTasks = [];
       }
     }
+
+    const now = new Date();
+    const startOfToday = startOfDay(now);
+    const startOfThisWeek = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+    const startOfThisMonth = startOfMonth(now);
+
+    const processedTasks = loadedTasks.map(task => {
+      let needsReset = false;
+      if (task.completed && task.lastCompletedDate) {
+        const lastCompletedStartOfDay = startOfDay(task.lastCompletedDate);
+        const lastCompletedStartOfWeek = startOfWeek(task.lastCompletedDate, { weekStartsOn: 1 });
+        const lastCompletedStartOfMonth = startOfMonth(task.lastCompletedDate);
+
+        if (task.recurrence === 'daily' && isBefore(lastCompletedStartOfDay, startOfToday)) {
+          needsReset = true;
+        } else if (task.recurrence === 'weekly' && isBefore(lastCompletedStartOfWeek, startOfThisWeek)) {
+          needsReset = true;
+        } else if (task.recurrence === 'monthly' && isBefore(lastCompletedStartOfMonth, startOfThisMonth)) {
+          needsReset = true;
+        }
+      }
+      return needsReset ? { ...task, completed: false } : task;
+    });
+    setTasks(processedTasks.sort((a, b) => (a.dueDate && b.dueDate ? a.dueDate.getTime() - b.dueDate.getTime() : (a.dueDate ? -1 : (b.dueDate ? 1 : 0)))));
   }, []);
+
 
   useEffect(() => {
     if (mounted) {
@@ -131,6 +185,7 @@ const Home: NextPage = () => {
     setNewTaskDescription('');
     setNewTaskDueDate(undefined);
     setNewTaskCategory(initialCategories[0]);
+    setNewTaskRecurrence('none');
     setEditingTask(null);
   };
 
@@ -145,6 +200,7 @@ const Home: NextPage = () => {
     setNewTaskDescription(task.description || '');
     setNewTaskDueDate(task.dueDate);
     setNewTaskCategory(task.category);
+    setNewTaskRecurrence(task.recurrence);
     setIsFormDialogOpen(true);
   };
 
@@ -168,6 +224,7 @@ const Home: NextPage = () => {
                 description: newTaskDescription,
                 dueDate: newTaskDueDate,
                 category: newTaskCategory,
+                recurrence: newTaskRecurrence,
               }
             : task
         ).sort((a, b) => (a.dueDate && b.dueDate ? a.dueDate.getTime() - b.dueDate.getTime() : (a.dueDate ? -1 : (b.dueDate ? 1 : 0))))
@@ -175,12 +232,14 @@ const Home: NextPage = () => {
       toast({ title: 'Success', description: 'Task updated successfully.' });
     } else {
       const newTask: Task = {
-        id: String(Date.now() + Math.random()), // More unique ID
+        id: String(Date.now() + Math.random()),
         title: newTaskTitle,
         description: newTaskDescription,
         dueDate: newTaskDueDate,
         category: newTaskCategory,
+        recurrence: newTaskRecurrence,
         completed: false,
+        // lastCompletedDate is set upon completion
       };
       setTasks((prevTasks) => [...prevTasks, newTask].sort((a, b) => (a.dueDate && b.dueDate ? a.dueDate.getTime() - b.dueDate.getTime() : (a.dueDate ? -1 : (b.dueDate ? 1 : 0)))));
       toast({ title: 'Success', description: 'Task added successfully.' });
@@ -198,11 +257,14 @@ const Home: NextPage = () => {
         if (task.id === taskId) {
           taskTitle = task.title;
           isCompleted = !task.completed;
-          return { ...task, completed: isCompleted };
+          const updatedTask = { ...task, completed: isCompleted };
+          if (isCompleted && task.recurrence !== 'none') {
+            updatedTask.lastCompletedDate = new Date();
+          }
+          return updatedTask;
         }
         return task;
-      }
-      )
+      })
     );
     toast({
       title: 'Task Status Updated',
@@ -226,15 +288,20 @@ const Home: NextPage = () => {
       task.dueDate.getDate() === selectedCalendarDate.getDate()
     );
   }), [tasks, selectedCalendarDate]);
+
+  const dailyTasks = useMemo(() => tasks.filter(task => task.recurrence === 'daily').sort((a,b) => a.title.localeCompare(b.title)), [tasks]);
+  const weeklyTasks = useMemo(() => tasks.filter(task => task.recurrence === 'weekly').sort((a,b) => a.title.localeCompare(b.title)), [tasks]);
+  const monthlyTasks = useMemo(() => tasks.filter(task => task.recurrence === 'monthly').sort((a,b) => a.title.localeCompare(b.title)), [tasks]);
+  const otherTasks = useMemo(() => tasks.filter(task => task.recurrence === 'none'), [tasks]);
   
-  const categorizedTasks = useMemo(() => tasks.reduce((acc, task) => {
+  const categorizedTasks = useMemo(() => otherTasks.reduce((acc, task) => {
     const categoryKey = task.category || 'Other';
     if (!acc[categoryKey]) {
       acc[categoryKey] = [];
     }
     acc[categoryKey].push(task);
     return acc;
-  }, {} as Record<string, Task[]>), [tasks]);
+  }, {} as Record<string, Task[]>), [otherTasks]);
 
   const dueDatesForCalendar = useMemo(() => 
     tasks.filter(task => task.dueDate).map(task => task.dueDate as Date)
@@ -250,6 +317,73 @@ const Home: NextPage = () => {
       </div>
     );
   }
+
+  const renderTaskList = (taskList: Task[], sectionTitle: string, icon?: React.ElementType) => {
+    if (taskList.length === 0) {
+      return (
+        <div key={sectionTitle}>
+          <h3 className="text-2xl font-semibold mb-4 text-foreground flex items-center">
+            {icon && <icon className="mr-3 h-7 w-7 text-accent" />}
+            {sectionTitle}
+          </h3>
+          <Card className="shadow-lg border-border bg-card">
+            <CardContent className="p-6 text-center">
+              <CheckSquare className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No {sectionTitle.toLowerCase()} tasks.</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div key={sectionTitle}>
+        <h3 className="text-2xl font-semibold mb-4 text-foreground flex items-center">
+          {icon && <icon className="mr-3 h-7 w-7 text-accent" />}
+          {sectionTitle}
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {taskList.map((task) => (
+            <Card key={task.id} className={`shadow-lg border-border transition-all duration-200 hover:shadow-xl ${task.completed ? 'opacity-70 bg-muted' : 'bg-card'}`}>
+              <CardHeader>
+                <CardTitle className={`flex items-start justify-between text-xl ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                  <span className="flex-1 mr-2 break-words">{task.title}</span>
+                   <Checkbox
+                    checked={task.completed}
+                    onCheckedChange={() => toggleTaskCompletion(task.id)}
+                    aria-label={`Mark task ${task.title} as ${task.completed ? 'incomplete' : 'complete'}`}
+                    className="mt-1 border-primary data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground"
+                  />
+                </CardTitle>
+                {task.dueDate && (
+                  <CardDescription className={`text-sm ${task.completed ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
+                    Due: {task.dueDate.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                  </CardDescription>
+                )}
+                 <CardDescription className={`text-xs capitalize ${task.completed ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
+                    Category: {task.category}
+                  </CardDescription>
+              </CardHeader>
+              {task.description && (
+                <CardContent>
+                  <p className={`text-sm whitespace-pre-wrap break-words ${task.completed ? 'text-muted-foreground' : 'text-muted-foreground'}`}>{task.description}</p>
+                </CardContent>
+              )}
+              <CardFooter className="flex justify-end space-x-2 pt-4">
+                <Button variant="ghost" size="icon" onClick={() => openEditDialog(task)} aria-label={`Edit task ${task.title}`} className="text-muted-foreground hover:text-accent">
+                  <Edit3 className="h-5 w-5" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => deleteTask(task.id)} aria-label={`Delete task ${task.title}`} className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-5 w-5" />
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div className="flex h-screen bg-background">
@@ -336,7 +470,7 @@ const Home: NextPage = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dueDate" className="text-foreground">Due Date</Label>
+              <Label htmlFor="dueDate" className="text-foreground">Due Date (Optional)</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -353,7 +487,7 @@ const Home: NextPage = () => {
                     selected={newTaskDueDate}
                     onSelect={setNewTaskDueDate}
                     initialFocus
-                    disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))} // Disable past dates
+                    disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))} 
                   />
                 </PopoverContent>
               </Popover>
@@ -368,6 +502,21 @@ const Home: NextPage = () => {
                   {initialCategories.map((cat) => (
                     <SelectItem key={cat} value={cat}>
                       {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="recurrence" className="text-foreground">Recurrence</Label>
+              <Select value={newTaskRecurrence} onValueChange={(value) => setNewTaskRecurrence(value as TaskRecurrence)}>
+                <SelectTrigger className="bg-background border-input text-foreground">
+                  <SelectValue placeholder="Select recurrence" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-popover text-popover-foreground">
+                  {recurrenceOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -395,7 +544,7 @@ const Home: NextPage = () => {
 
         {activeView === 'tasks' && (
           <div className="space-y-8">
-            {tasks.length === 0 && (
+             {tasks.length === 0 && (
                  <Card className="shadow-lg border-border bg-card">
                     <CardContent className="p-10 text-center">
                         <CheckSquare className="mx-auto h-16 w-16 text-muted-foreground mb-6" />
@@ -404,6 +553,11 @@ const Home: NextPage = () => {
                     </CardContent>
                 </Card>
             )}
+
+            {dailyTasks.length > 0 && renderTaskList(dailyTasks, "Daily Tasks", recurrenceIcons.daily)}
+            {weeklyTasks.length > 0 && renderTaskList(weeklyTasks, "Weekly Tasks", recurrenceIcons.weekly)}
+            {monthlyTasks.length > 0 && renderTaskList(monthlyTasks, "Monthly Tasks", recurrenceIcons.monthly)}
+            
             {Object.entries(categorizedTasks).map(([category, categoryTasks]) => {
                const IconComponent = categoryIcons[category] || LayoutDashboard;
                const pendingTasksCount = categoryTasks.filter(task => !task.completed).length;
@@ -454,6 +608,15 @@ const Home: NextPage = () => {
                 </div>
               )
             })}
+            {otherTasks.length === 0 && dailyTasks.length === 0 && weeklyTasks.length === 0 && monthlyTasks.length === 0 && tasks.length > 0 && (
+                <Card className="shadow-lg border-border bg-card">
+                    <CardContent className="p-10 text-center">
+                        <CheckSquare className="mx-auto h-16 w-16 text-muted-foreground mb-6" />
+                        <h3 className="text-xl font-semibold text-foreground mb-2">No 'Other' tasks!</h3>
+                        <p className="text-muted-foreground">All your non-recurring tasks are categorized or you haven't added any yet.</p>
+                    </CardContent>
+                </Card>
+            )}
           </div>
         )}
 
